@@ -18,29 +18,34 @@ jobs:
 
       # Authenticate to Google Cloud using service account key
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
       - name: Set up gcloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ secrets.GCP_PROJECT }}
+          project_id: playground-s-11-18c7261a
           install_components: "gke-gcloud-auth-plugin"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker gcr.io --quiet
 
       - name: Build and Push Docker Image
         run: |
-          IMAGE="gcr.io/${{ secrets.GCP_PROJECT }}/tiny-cloudrun-app:${{ github.sha }}"
+          IMAGE="gcr.io/playground-s-11-18c7261a/tiny-cloudrun-app:${GITHUB_SHA}"
           docker build -t "$IMAGE" .
           echo "$IMAGE" > image_ref.txt
           docker push "$IMAGE"
 
-      - name: Deploy to Cloud Run (no traffic)
-        uses: google-github-actions/deploy-cloudrun@v1
-        with:
-          service: tiny-cloudrun-app
-          image: "gcr.io/${{ secrets.GCP_PROJECT }}/tiny-cloudrun-app:${{ github.sha }}"
-          region: us-central1
-          allow_unauthenticated: true
-          no_traffic: true
-          env_vars: VERSION=${{ github.sha }}
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy tiny-cloudrun-app \
+            --image=gcr.io/playground-s-11-18c7261a/tiny-cloudrun-app:${GITHUB_SHA} \
+            --region=us-central1 \
+            --allow-unauthenticated \
+            --platform=managed \
+            --concurrency=80 \
+            --min-instances=0 \
+            --max-instances=5 \
+            --set-env-vars VERSION=${GITHUB_SHA}
