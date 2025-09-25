@@ -1,0 +1,50 @@
+name: CI/CD → Cloud Run
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: 'read'
+  id-token: 'write'   # required for google-github-actions/auth with workload identity
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Cloud auth
+        uses: google-github-actions/auth@v1
+        with:
+          # recommended: use workload identity / OIDC; configure service account in GCP
+          workload_identity_provider: projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
+          service_account: sa-name@PROJECT_ID.iam.gserviceaccount.com
+
+      - name: Set up gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+          install_components: "gke-gcloud-auth-plugin"
+
+      - name: Build and push image
+        run: |
+          IMAGE="gcr.io/${{ env.GCP_PROJECT }}/tiny-cloudrun-app:${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          echo "$IMAGE" > image_ref.txt
+          docker push "$IMAGE"
+        env:
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+
+      - name: Deploy to Cloud Run (no traffic) - create new revision
+        uses: google-github-actions/deploy-cloudrun@v1
+        with:
+          service: tiny-cloudrun-app
+          image: "gcr.io/${{ env.GCP_PROJECT }}/tiny-cloudrun-app:${{ github.sha }}"
+          region: us-central1
+          allow_unauthenticated: true
+          no_traffic: true
+          env_vars: VERSION=${{ github.sha }}
+        env:
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
